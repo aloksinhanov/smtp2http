@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -10,18 +11,30 @@ import (
 	"strings"
 	"time"
 
-	"github.com/alash3al/go-smtpsrv"
-	"github.com/go-resty/resty/v2"
+	"github.com/aloksinhanov/go-smtpsrv"
 )
 
 func main() {
+
+	//setup the DB for authentication
+	dbCfg := DBConfig{
+		Server:   *flagDBServer,
+		Port:     *flagDBPort,
+		DbName:   *flagDBName,
+		UserID:   *flagUserID,
+		Password: *flagUserPwd,
+	}
+	authDB := LoadAuthDB(dbCfg)
+	auth := NewAPIKeyAuthenticator(authDB)
+	ctx := context.Background()
+
 	cfg := smtpsrv.ServerConfig{
 		ReadTimeout:     time.Duration(*flagReadTimeout) * time.Second,
 		WriteTimeout:    time.Duration(*flagWriteTimeout) * time.Second,
 		ListenAddr:      *flagListenAddr,
 		MaxMessageBytes: int(*flagMaxMessageSize),
 		BannerDomain:    *flagServerName,
-		Handler: smtpsrv.HandlerFunc(func(c *smtpsrv.Context) error {
+		Handler: smtpsrv.HandlerFunc(func(c *smtpsrv.Context, apiKey string) error {
 			msg, err := c.Parse()
 			if err != nil {
 				return errors.New("Cannot read your message: " + err.Error())
@@ -85,17 +98,20 @@ func main() {
 				})
 			}
 
-			resp, err := resty.New().R().SetHeader("Content-Type", "application/json").SetBody(jsonData).Post(*flagWebhook)
+			err = CreateTransactionEmail(jsonData, apiKey)
 			if err != nil {
 				log.Println(err)
 				return errors.New("E1: Cannot accept your message due to internal error, please report that to our engineers")
-			} else if resp.StatusCode() != 200 {
-				log.Println(resp.Status())
-				return errors.New("E2: Cannot accept your message due to internal error, please report that to our engineers")
 			}
-
 			return nil
 		}),
+		Auther: func(username, password string) error {
+			ok, err := auth.Authenticate(ctx, password)
+			if ok {
+				return nil
+			}
+			return err
+		},
 	}
 
 	fmt.Println(smtpsrv.ListenAndServe(&cfg))
