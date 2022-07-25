@@ -12,6 +12,11 @@ var (
 	flagAuthUSER       = flag.String("user", "", "user for smtp client")
 	flagAuthPASS       = flag.String("pass", "", "pass for smtp client")
 	flagDomain         = flag.String("domain", "", "domain for recieving mails")
+	flagDBServer       = flag.String("dbserver", "", "db server")
+	flagDBPort         = flag.String("dbport", "", "db server port")
+	flagDBName         = flag.String("dbname", "", "db name")
+	flagUserID         = flag.String("dbuser", "", "db user id")
+	flagUserPwd        = flag.String("dbpwd", "", "db user paasword")
 )
 
 func init() {
