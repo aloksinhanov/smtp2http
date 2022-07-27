@@ -58,7 +58,9 @@ func main() {
 			jsonData.Body.Text = string(msg.TextBody)
 
 			jsonData.Addresses.From = transformStdAddressToEmailAddress([]*mail.Address{c.From()})[0]
+			jsonData.Addresses.From.Name = msg.From[0].Name
 			jsonData.Addresses.To = transformStdAddressToEmailAddress([]*mail.Address{c.To()})[0]
+			jsonData.Addresses.To.Name = msg.To[0].Name
 
 			toSplited := strings.Split(jsonData.Addresses.To.Address, "@")
 			if len(*flagDomain) > 0 && (len(toSplited) < 2 || toSplited[1] != *flagDomain) {
