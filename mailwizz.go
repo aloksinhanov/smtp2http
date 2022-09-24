@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"strings"
 	"time"
 
@@ -24,10 +25,16 @@ func CreateTransactionEmail(msg EmailMessage, apiKey string) error {
 		}
 	}()
 
-	resp, err = resty.New().R().SetHeader("Content-Type", "application/x-www-form-urlencoded").
+	req := resty.New().R().SetHeader("Content-Type", "application/x-www-form-urlencoded").
 		SetHeader("X-MW-PUBLIC-KEY", apiKey).
 		SetHeader("X-MW-TIMESTAMP", fmt.Sprintf("%v", (time.Now().Unix()))).
-		SetBody(createRequestBody(msg)).Post(*flagWebhook)
+		SetBody(createRequestBody(msg))
+
+	// useful for capturing CURls to debug
+	// log.Println(http2curl.GetCurlCommand(req.RawRequest))
+
+	resp, err = req.Post(*flagWebhook)
+
 	log.Println(resp)
 	if resp.StatusCode() != 201 {
 		return errors.New("E2: Cannot accept your message due to internal error, please report that to our engineers")
@@ -52,9 +59,15 @@ func createRequestBody(msg EmailMessage) string {
 		fromName = getName(msg.Addresses.From.Address)
 	}
 
-	return fmt.Sprintf(`email[to_name]=%v&email[to_email]=%v&email[from_name]=%v
-	&email[from_email]=%v&email[subject]=%v&email[body]=%v&send_at=%v`,
-		toName, msg.Addresses.To.Address, fromName, msg.Addresses.From.Address,
-		msg.Subject, base64.StdEncoding.EncodeToString([]byte(msg.Body.Text)), time.Now().UTC().Format("2006-01-02 15:04:05"))
-	//need to check what to do with text or html
+	data := url.Values{}
+	data.Set("email[to_name]", toName)
+	data.Set("email[to_email]", msg.Addresses.To.Address)
+	data.Set("email[from_name]", fromName)
+	data.Set("email[from_email]", msg.Addresses.From.Address)
+	data.Set("email[subject]", msg.Subject)
+	//always reading HTML. Is there a use-case to read Text?
+	data.Set("email[body]", base64.StdEncoding.EncodeToString([]byte(msg.Body.HTML)))
+	data.Set("send_at", time.Now().UTC().Format("2006-01-02 15:04:05"))
+
+	return data.Encode()
 }

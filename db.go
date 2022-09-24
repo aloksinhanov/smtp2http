@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
+	"github.com/go-sql-driver/mysql"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 )
@@ -42,6 +44,7 @@ func LoadAuthDB(cfg DBConfig) *DB {
 		if err != nil {
 			log.Fatal(err)
 		}
+		db.SetConnMaxLifetime(5 * time.Minute)
 		myDB = &DB{db}
 	})
 
@@ -50,12 +53,22 @@ func LoadAuthDB(cfg DBConfig) *DB {
 
 func getConnectionString(cfg DBConfig) (string, error) {
 	if cfg.Server == "" || cfg.Port == "" || cfg.DbName == "" || cfg.UserID == "" || cfg.Password == "" {
-		return "", fmt.Errorf("getConnectionString: One or more required db configuration  missing")
+		return "", fmt.Errorf("getConnectionString: One or more required db configuration  missing: %v", cfg)
 	}
 
-	connString := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s",
-		cfg.UserID, cfg.Password, cfg.Server, cfg.Port, cfg.DbName)
-	return connString, nil
+	myCfg := mysql.Config{
+		User:                 cfg.UserID,
+		Passwd:               cfg.Password,
+		Net:                  "tcp",
+		Addr:                 fmt.Sprintf("%s:%s", cfg.Server, cfg.Port),
+		DBName:               cfg.DbName,
+		AllowNativePasswords: true,
+	}
+
+	s := myCfg.FormatDSN()
+	fmt.Printf("dsn: %s\n", s)
+
+	return s, nil
 }
 
 func (d DB) FindAny(ctx context.Context, objects interface{}, query string, args []interface{}) error {

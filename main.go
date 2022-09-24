@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -9,9 +10,10 @@ import (
 	"log"
 	"net/mail"
 	"strings"
+	"sync"
 	"time"
 
-	"github.com/aloksinhanov/go-smtpsrv"
+	"github.com/alash3al/smtp2http/smtpsrv"
 )
 
 func main() {
@@ -29,12 +31,43 @@ func main() {
 	ctx := context.Background()
 
 	cfg := smtpsrv.ServerConfig{
-		ReadTimeout:     time.Duration(*flagReadTimeout) * time.Second,
-		WriteTimeout:    time.Duration(*flagWriteTimeout) * time.Second,
-		ListenAddr:      *flagListenAddr,
+		ReadTimeout:  time.Duration(*flagReadTimeout) * time.Second,
+		WriteTimeout: time.Duration(*flagWriteTimeout) * time.Second,
+		ListenAddr: func() []string {
+			if flagListenAddr != nil {
+				return strings.Split(*flagListenAddr, ",")
+			}
+			return nil
+		}(),
+		ListenAddrSSL: func() []string {
+			if flagListenAddrSSL != nil {
+				return strings.Split(*flagListenAddrSSL, ",")
+			}
+			return nil
+		}(),
 		MaxMessageBytes: int(*flagMaxMessageSize),
 		BannerDomain:    *flagServerName,
+		TLSConfig: func() *tls.Config {
+
+			if *flagSSLCert == "" || *flagPrivateKkey == "" {
+				return nil
+			}
+
+			cer, err := tls.LoadX509KeyPair(*flagSSLCert, *flagPrivateKkey)
+			if err != nil {
+				panic(fmt.Errorf("Unable to setup TLS: %v", err))
+			}
+
+			config := &tls.Config{MinVersion: tls.VersionTLS10,
+				PreferServerCipherSuites: true,
+				Certificates:             []tls.Certificate{cer}}
+			return config
+		}(),
 		Handler: smtpsrv.HandlerFunc(func(c *smtpsrv.Context, apiKey string) error {
+			if apiKey == "" {
+				log.Println("Blank APIKey")
+				return errors.New("accesss denied")
+			}
 			msg, err := c.Parse()
 			if err != nil {
 				return errors.New("Cannot read your message: " + err.Error())
@@ -66,7 +99,7 @@ func main() {
 			if len(*flagDomain) > 0 && (len(toSplited) < 2 || toSplited[1] != *flagDomain) {
 				log.Println("domain not allowed")
 				log.Println(*flagDomain)
-				return errors.New("Unauthorized TO domain")
+				return errors.New("Unauthorized to domain")
 			}
 
 			jsonData.Addresses.Cc = transformStdAddressToEmailAddress(msg.Cc)
@@ -108,7 +141,7 @@ func main() {
 			return nil
 		}),
 		Auther: func(username, password string) error {
-			ok, err := auth.Authenticate(ctx, password)
+			ok, err := auth.Authenticate(ctx, username, password)
 			if ok {
 				return nil
 			}
@@ -116,5 +149,23 @@ func main() {
 		},
 	}
 
-	fmt.Println(smtpsrv.ListenAndServe(&cfg))
+	var wg sync.WaitGroup
+
+	for _, addr := range cfg.ListenAddrSSL {
+		wg.Add(1)
+		go func(addr string) {
+			smtpsrv.ListenAndServeTLS(&cfg, addr)
+			wg.Done()
+		}(addr)
+	}
+
+	for _, addr := range cfg.ListenAddr {
+		wg.Add(1)
+		go func(addr string) {
+			smtpsrv.ListenAndServe(&cfg, addr)
+			wg.Done()
+		}(addr)
+	}
+
+	wg.Wait()
 }
